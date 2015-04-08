@@ -1,59 +1,79 @@
 package x95102003;
 
 import java.io.IOException;
+import java.net.URL;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.StringTokenizer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.LongWritable;
-import org.apache.hadoop.io.Text;
-import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.mapreduce.Mapper;
-import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.conf.*;
+import org.apache.hadoop.io.*;
+import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 
-import x95102003.HtmlParser;
-import x95102003.HtmlPageRank.mapper;
-import x95102003.HtmlPageRank.reducer;
-
 public class HtmlMapReducer {
+	public static String getDomainName(String checkString) {
+		URL url;
+		try {
+			url = new URL(checkString);
+			return url.getHost().toString();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			return "";
+		}
+	}
+
+	public static String parseHtml(String token) {
+		if (token.startsWith("href=")) {
+			String patternRgx = "http[s]?://.*\"";
+			Matcher matcher = Pattern.compile(patternRgx).matcher(token);
+			if (matcher.find()) {
+				return getDomainName(matcher.group());
+			}
+		}
+		return "";
+	}
+
 	public static class HtmlParseMapper extends
 			Mapper<LongWritable, Text, Text, Text> {
 		public void map(LongWritable key, Text v, Context context)
 				throws IOException, InterruptedException {
-			StringTokenizer token = new StringTokenizer(v.toString());
-			String outcomeURL = "";
-			String incomeURL = "";
-			while (token.hasMoreTokens()) {
-				String webCont = token.nextToken();
-				if (HtmlParser.getDomainName(webCont).length() > 0) {
-					outcomeURL = HtmlParser.getDomainName(webCont);
+			String values[] = v.toString().split("@#\\*#@");
+			String beginURL = getDomainName(values[0]);
+			for (int i = 1; i < values.length; i++) {
+				StringTokenizer tokenizer = new StringTokenizer(values[i]);
+				while (tokenizer.hasMoreTokens()) {
+					String html = tokenizer.nextToken();
+					String outLink = parseHtml(html);
+					if (outLink.length() > 0 && !outLink.equals(beginURL)) {
+						context.write(new Text(beginURL), new Text(outLink));
+					}
 				}
-				if (HtmlParser.parseHtml(webCont).length() > 0) {
-					incomeURL = HtmlParser.parseHtml(incomeURL);
-				}
-				if (incomeURL.length() > 0 && outcomeURL.length() > 0) {
-					context.write(new Text(incomeURL), new Text(outcomeURL));
-				}
-
 			}
+
 		}
 	}
 
 	public static class HtmlParseReducer extends
-			Reducer<Text, Iterable<Text>, Text, Text> {
-		final int initPageRank = 1;
+			Reducer<Text, Text, Text, Text> {
+		private final int INITPAGERANK = 1;
 
 		public void reduce(Text key, Iterable<Text> values, Context context)
 				throws IOException, InterruptedException {
-			String appedString = new String();
+			StringBuilder appedString = new StringBuilder();
+			Set<String> sets = new HashSet<String>();
 			for (Text v : values) {
-				appedString += v.toString() + " ";
+				if (sets.add(v.toString())) {
+					appedString.append(v.toString() + " ");
+				}
 			}
-			String mapperInput = String.valueOf(initPageRank) + " "
+			String mapperInput = String.valueOf(INITPAGERANK) + " "
 					+ appedString;
 			context.write(key, new Text(mapperInput));
 		}
@@ -70,11 +90,12 @@ public class HtmlMapReducer {
 
 		Job job = new Job(conf, "Html Parse");
 
-		job.setJarByClass(HtmlPageRank.class);
+		job.setJarByClass(HtmlMapReducer.class);
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
-		job.setMapperClass(mapper.class);
-		job.setReducerClass(reducer.class);
+
+		job.setMapperClass(HtmlParseMapper.class);
+		job.setReducerClass(HtmlParseReducer.class);
 
 		job.setInputFormatClass(TextInputFormat.class);
 		job.setOutputFormatClass(TextOutputFormat.class);
