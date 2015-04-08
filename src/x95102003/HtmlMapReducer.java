@@ -2,6 +2,8 @@ package x95102003;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -16,7 +18,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 
 public class HtmlMapReducer {
-	public static String getDomainName(String checkString){
+	public static String getDomainName(String checkString) {
 		URL url;
 		try {
 			url = new URL(checkString);
@@ -26,6 +28,7 @@ public class HtmlMapReducer {
 			return "";
 		}
 	}
+
 	public static String parseHtml(String token) {
 		if (token.startsWith("href=")) {
 			String patternRgx = "http[s]?://.*\"";
@@ -36,6 +39,7 @@ public class HtmlMapReducer {
 		}
 		return "";
 	}
+
 	public static class HtmlParseMapper extends
 			Mapper<LongWritable, Text, Text, Text> {
 		public void map(LongWritable key, Text v, Context context)
@@ -53,20 +57,23 @@ public class HtmlMapReducer {
 				}
 			}
 
-			}
 		}
+	}
 
 	public static class HtmlParseReducer extends
-			Reducer<Text, Iterable<Text>, Text, Text> {
-		final int initPageRank = 1;
+			Reducer<Text, Text, Text, Text> {
+		private final int INITPAGERANK = 1;
 
 		public void reduce(Text key, Iterable<Text> values, Context context)
 				throws IOException, InterruptedException {
-			String appedString = new String();
+			StringBuilder appedString = new StringBuilder();
+			Set<String> sets = new HashSet<String>();
 			for (Text v : values) {
-				appedString += v.toString() + " ";
+				if (sets.add(v.toString())) {
+					appedString.append(v.toString() + " ");
+				}
 			}
-			String mapperInput = String.valueOf(initPageRank) + " "
+			String mapperInput = String.valueOf(INITPAGERANK) + " "
 					+ appedString;
 			context.write(key, new Text(mapperInput));
 		}
@@ -86,7 +93,7 @@ public class HtmlMapReducer {
 		job.setJarByClass(HtmlMapReducer.class);
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
-		
+
 		job.setMapperClass(HtmlParseMapper.class);
 		job.setReducerClass(HtmlParseReducer.class);
 
